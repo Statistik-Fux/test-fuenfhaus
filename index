@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Handball Statistik</title>
+
+<!-- Cache verhindern -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+
+<style>
+body { font-family: Arial, sans-serif; margin: 0; background-color: #fff; }
+body::before, body::after {
+    content: ""; position: fixed; top: 50%; transform: translateY(-50%);
+    width: 70vw; height: 90vh; background-repeat: no-repeat; background-position: center;
+    background-size: contain; opacity: 0.15; filter: blur(0.5px);
+    z-index: -1; pointer-events: none;
+}
+body::before { left: 15%; }
+body::after { right: 15%; }
+h1, h2 { text-align: center; margin-bottom: 15px; }
+#setup { background: rgba(255, 255, 255, 0.6); padding: 20px; border-radius: 12px;
+    max-width: 500px; margin: 30px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+#opponent, #teamSelect { font-size: 1.1em; padding: 12px; width: 100%; margin-bottom: 20px;
+    border: 1px solid #ccc; border-radius: 8px; background-color: rgba(255,255,255,0.85);
+    transition: border-color 0.3s, box-shadow 0.3s; color: black;
+}
+#opponent:focus, #teamSelect:focus { outline: none; border-color: #009688; box-shadow: 0 0 5px rgba(0,150,136,0.5); }
+#player-selection { display: flex; gap: 10px; flex-wrap: nowrap; justify-content: space-between; }
+#player-selection .column { width: 48%; display: flex; flex-direction: column; gap: 8px; }
+#player-selection label { cursor: pointer; font-size: 1em; padding: 4px 0; }
+#player-selection input[type="checkbox"] { margin-right: 6px; transform: scale(1.2); }
+.start-btn {
+    font-size: 1.3em; padding: 12px 15px; background: linear-gradient(90deg, #009688, #26a69a);
+    color: white; border: none; border-radius: 8px; cursor: pointer; width: 100%; margin-top: 20px;
+    transition: background 0.3s, transform 0.1s;
+}
+.start-btn:hover { background: linear-gradient(90deg, #00796b, #26a69a); }
+.start-btn:active { transform: scale(0.98); }
+.player-card { border-radius: 8px; padding: 10px; margin: 10px; flex: 1; min-width: 250px;
+    background: white; box-shadow: 0 3px 8px rgba(0,0,0,0.05); }
+.player-name { font-weight: bold; font-size: 1.4em; text-align: center; margin-bottom: 10px; }
+.grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; padding: 10px; }
+.btn { width: 31%; padding: 8px; margin: 2px 1%; border: none; cursor: pointer;
+    font-size: 0.9em; border-radius: 6px; user-select: none; }
+.positive { background-color: #d4edda; }
+.negative { background-color: #f8d7da; }
+.full-width { width: 98%; }
+table { width: 100%; border-collapse: collapse; margin-top: 20px; background-color: white; font-size: 0.9em; }
+th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+th { background: #f0f0f0; }
+.thick-separator { border-left: 3px solid black !important; }
+.hidden { display: none; }
+
+/* Notiz-Feld */
+#notesContainer {
+    max-width: 1000px;
+    margin: 20px auto;
+    padding: 10px;
+}
+#notesContainer label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+#notes {
+    width: 100%;
+    min-height: 80px;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    resize: vertical;
+}
+
+@media (max-width: 768px) {
+    .btn { width: 48%; font-size: 0.85em; padding: 6px; }
+    .player-card { min-width: unset; width: 100%; }
+    #player-selection { flex-direction: column; }
+    #player-selection .column { width: 100%; }
+    table { font-size: 0.8em; }
+}
+</style>
+</head>
+<body>
+<main id="setup">
+<h1>Willkommen!</h1>
+<input type="text" id="opponent" placeholder="Gegner eingeben">
+<select id="teamSelect">
+    <option value="WAT Fuenfhaus">WAT Fünfhaus</option>
+</select>
+<section id="player-selection">
+    <div class="column" id="col1"></div>
+    <div class="column" id="col2"></div>
+</section>
+<button class="start-btn" id="startBtn">Start</button>
+</main>
+
+<h1 id="headline" class="hidden"></h1>
+<div id="players" class="grid"></div>
+
+<div id="playerStats"></div>
+<div id="teamStats"></div>
+
+<div id="notesContainer" class="hidden">
+    <label for="notes">Notizen:</label>
+    <textarea id="notes" placeholder="Notizen zum Spiel eingeben..."></textarea>
+</div>
+
+<script>
+(() => {
+    const cb = Date.now();
+    const col1 = document.getElementById("col1");
+    const col2 = document.getElementById("col2");
+    const startBtn = document.getElementById("startBtn");
+    const teamSelect = document.getElementById("teamSelect");
+    const notesContainer = document.getElementById("notesContainer");
+
+    let currentOpponent = "";
+
+    const teams = {
+        WATFuenfhaus: ["RR1", "RR2", "RR3", "Außen1", "Außen2", "Kreis1", "Torhüter1", "Tempo1"]
+    };
+
+    const categories = {
+        WATFuenfhaus: ["Rückraum", "Rückraum", "Rückraum", "Außen", "Außen", "Kreis", "Torhüter", "Tempo"]
+    };
+
+    let playerNames = [...teams.WATFuenfhaus];
+    let playerCategories = [...categories.WATFuenfhaus];
+
+    const actionsPositive = [
+        {key:"KM_pos",label:"KM"},
+        {key:"DBR_pos",label:"DBR"},
+        {key:"AUSSEN_pos",label:"Außen"},
+        {key:"NAH_pos",label:"NAH"},
+        {key:"FERN_pos",label:"FERN"},
+        {key:"TGS_pos",label:"TGS"},
+        {key:"LT_pos",label:"Leeres"},
+        {key:"7M_pos",label:"7M"}
+    ];
+
+    const actionsNegative = [
+        {key:"KM_neg",label:"KM"},
+        {key:"DBR_neg",label:"DBR"},
+        {key:"AUSSEN_neg",label:"Außen"},
+        {key:"NAH_neg",label:"NAH"},
+        {key:"FERN_neg",label:"FERN"},
+        {key:"TGS_neg",label:"TGS"},
+        {key:"LT_neg",label:"Leeres"},
+        {key:"7M_neg",label:"7M"},
+        {key:"TF_neg",label:"TF"}
+    ];
+
+    let playersData = {};
+    let pressTimer, longPressActive, activeTouch;
+
+    window.addEventListener("load", () => {
+        document.styleSheets[0].cssRules[1].style.backgroundImage = `url('logo.png.JPG?cb=${cb}')`;
+        document.styleSheets[0].cssRules[2].style.backgroundImage = `url('logo.png.JPG?cb=${cb}')`;
+        renderPlayerCheckboxes();
+    });
+
+    function renderPlayerCheckboxes() {
+        col1.innerHTML = "";
+        col2.innerHTML = "";
+
+        playerNames.forEach((name, i) => {
+            const label = document.createElement("label");
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.value = i + 1;
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(` ${name}`));
+            (i < Math.ceil(playerNames.length / 2) ? col1 : col2).appendChild(label);
+        });
+    }
+
+    function validateAndStart() {
+        const opponent = document.getElementById("opponent").value.trim();
+        const selected = Array.from(document.querySelectorAll("#player-selection input:checked"));
+
+        if (!opponent || selected.length < 7) {
+            alert("Bitte korrigieren:\n- Gegner eingeben\n- Mindestens 7 Spieler auswählen");
+            return;
+        }
+
+        currentOpponent = opponent;
+        startGame(opponent, selected.map(cb => parseInt(cb.value)));
+    }
+
+    function startGame(opponent, selectedPlayers) {
+        document.getElementById("headline").innerText = `Statistik vs ${opponent}`;
+        document.getElementById("setup").classList.add("hidden");
+        document.getElementById("headline").classList.remove("hidden");
+        notesContainer.classList.remove("hidden");
+
+        const playersDiv = document.getElementById("players");
+        playersDiv.innerHTML = "";
+        playersData = {};
+
+        selectedPlayers.forEach(num => {
+            playersData[num] = {};
+            [...actionsPositive, ...actionsNegative].forEach(a => playersData[num][a.key] = 0);
+
+            const card = document.createElement("div");
+            card.className = "player-card";
+
+            const nameDiv = document.createElement("div");
+            nameDiv.className = "player-name";
+            nameDiv.textContent = playerNames[num - 1];
+            card.appendChild(nameDiv);
+
+            [...actionsPositive, ...actionsNegative].forEach((a, idx) => {
+                const btn = document.createElement("button");
+                btn.className = `btn ${idx < actionsPositive.length ? "positive" : "negative"}`;
+                if (a.key.startsWith("TF") && idx >= actionsPositive.length) btn.classList.add("full-width");
+                btn.textContent = `${a.label} (0)`;
+
+                const startPress = () => {
+                    longPressActive = false;
+                    pressTimer = setTimeout(() => {
+                        playersData[num][a.key] = Math.max(0, playersData[num][a.key] - 1);
+                        btn.textContent = `${a.label} (${playersData[num][a.key]})`;
+                        updateTables();
+                        longPressActive = true;
+                    }, 500);
+                };
+
+                const endPress = () => {
+                    clearTimeout(pressTimer);
+                    if (!longPressActive) {
+                        playersData[num][a.key]++;
+                        btn.textContent = `${a.label} (${playersData[num][a.key]})`;
+                        updateTables();
+                    }
+                };
+
+                btn.addEventListener("mousedown", () => { if (!activeTouch) startPress(); });
+                btn.addEventListener("mouseup", () => { if (!activeTouch) endPress(); });
+                btn.addEventListener("mouseleave", () => clearTimeout(pressTimer));
+                btn.addEventListener("touchstart", e => { activeTouch = true; startPress(); e.preventDefault(); });
+                btn.addEventListener("touchend", e => { endPress(); setTimeout(() => activeTouch = false, 300); e.preventDefault(); });
+                btn.addEventListener("touchcancel", () => clearTimeout(pressTimer));
+
+                card.appendChild(btn);
+
+                if (idx === actionsPositive.length - 1) {
+                    const sep = document.createElement("div");
+                    sep.style.borderBottom = "3px solid black";
+                    sep.style.margin = "5px 0";
+                    card.appendChild(sep);
+                }
+            });
+
+            playersDiv.appendChild(card);
+        });
+
+        updateTables();
+    }
+
+    function updateTables() {
+        const buildTable = (id, header1, rows) => {
+            let extraHeaders = id === "teamTable" ? "<th>TW</th>" : "";
+            let extraNameHeader = id === "playerTable" ? "<th>Spieler</th>" : "";
+
+            let headerRow = `<tr><th>${header1}</th>` +
+                actionsPositive.map(a => `<th>${a.label}</th>`).join("") +
+                actionsNegative.map((a, i) => `<th class="${i === 0 ? "thick-separator" : ""}">${a.label}</th>`).join("") +
+                `<th>WQ</th><th>WQ inkl. TF</th>` + extraHeaders + extraNameHeader + `</tr>`;
+
+            return `<table id="${id}">${headerRow}${rows}</table>`;
+        };
+
+        let playerRows = "";
+        let lastCategory = null;
+
+        Object.keys(playersData).forEach(num => {
+            const cat = playerCategories[num - 1];
+
+            if (lastCategory && lastCategory !== cat) {
+                playerRows += `<tr><td colspan="${actionsPositive.length + actionsNegative.length + 4}"></td></tr>`;
+            }
+
+            lastCategory = cat;
+
+            let posSum = actionsPositive.reduce((s, a) => s + playersData[num][a.key], 0);
+            let negSumExTF = actionsNegative.filter(a => a.key !== "TF_neg").reduce((s, a) => s + playersData[num][a.key], 0);
+            let negSum = actionsNegative.reduce((s, a) => s + playersData[num][a.key], 0);
+
+            let wq = posSum + negSumExTF > 0 ? (posSum / (posSum + negSumExTF) * 100).toFixed(1) + "%" : "-";
+            let wqTF = posSum + negSum > 0 ? (posSum / (posSum + negSum) * 100).toFixed(1) + "%" : "-";
+
+            playerRows += `<tr><td>${playerNames[num - 1]}</td>` +
+                actionsPositive.map(a => `<td>${playersData[num][a.key]}</td>`).join("") +
+                actionsNegative.map((a, i) => `<td class="${i === 0 ? "thick-separator" : ""}">${playersData[num][a.key]}</td>`).join("") +
+                `<td>${wq}</td><td>${wqTF}</td><td>${playerNames[num - 1]}</td></tr>`;
+        });
+
+        document.getElementById("playerStats").innerHTML = buildTable("playerTable", "Spieler", playerRows);
+
+        let fieldPlayers = Object.keys(playersData).filter(n => {
+            const category = playerCategories[n - 1];
+            return category !== "Torhüter" && category !== "Tempo";
+        });
+
+        let posTotalField = actionsPositive.reduce((s, a) =>
+            s + fieldPlayers.reduce((sum, n) => sum + playersData[n][a.key], 0), 0);
+
+        let negTotalExTFField = actionsNegative.filter(a => a.key !== "TF_neg").reduce((s, a) =>
+            s + fieldPlayers.reduce((sum, n) => sum + playersData[n][a.key], 0), 0);
+
+        let negTotalField = actionsNegative.reduce((s, a) =>
+            s + fieldPlayers.reduce((sum, n) => sum + playersData[n][a.key], 0), 0);
+
+        let teamWQ = posTotalField + negTotalExTFField > 0 ? (posTotalField / (posTotalField + negTotalExTFField) * 100).toFixed(1) + "%" : "-";
+        let teamWQTF = posTotalField + negTotalField > 0 ? (posTotalField / (posTotalField + negTotalField) * 100).toFixed(1) + "%" : "-";
+
+        let goalkeepers = Object.keys(playersData).filter(n => playerCategories[n - 1] === "Torhüter");
+        let posGK = actionsPositive.reduce((s, a) => s + goalkeepers.reduce((sum, n) => sum + playersData[n][a.key], 0), 0);
+        let negExTFGK = actionsNegative.filter(a => a.key !== "TF_neg").reduce((s, a) => s + goalkeepers.reduce((sum, n) => sum + playersData[n][a.key], 0), 0);
+        let tw = posGK + negExTFGK > 0 ? (posGK / (posGK + negExTFGK) * 100).toFixed(1) + "%" : "-";
+
+        let teamRow = `<tr><td>Gesamt</td>` +
+            actionsPositive.map(a => `<td>${fieldPlayers.reduce((sum, n) => sum + playersData[n][a.key], 0)}</td>`).join("") +
+            actionsNegative.map((a, i) => `<td class="${i === 0 ? "thick-separator" : ""}">${fieldPlayers.reduce((sum, n) => sum + playersData[n][a.key], 0)}</td>`).join("") +
+            `<td>${teamWQ}</td><td>${teamWQTF}</td><td>${tw}</td></tr>`;
+
+        document.getElementById("teamStats").innerHTML = buildTable("teamTable", "Team", teamRow);
+    }
+
+    startBtn.addEventListener("click", validateAndStart);
+})();
+</script>
+</body>
+</html>
